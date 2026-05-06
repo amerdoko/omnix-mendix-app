@@ -9,10 +9,12 @@ echo "Deploying ${RELEASE} → ${AKS} in ${RG} (image=${IMG}:${TAG})"
 CTX_DIR=$(mktemp -d)
 cp -r "${CHART_DIR}" "${CTX_DIR}/chart"
 cp "${VALUES}" "${CTX_DIR}/values.yaml"
+cd "${CTX_DIR}"
+ls -la
 
 az aks command invoke \
   -g "${RG}" -n "${AKS}" \
-  --file "${CTX_DIR}" \
+  --file . \
   --command "kubectl create namespace ${NS} --dry-run=client -o yaml | kubectl apply -f - && \
              helm upgrade --install ${RELEASE} ./chart \
                -n ${NS} \
