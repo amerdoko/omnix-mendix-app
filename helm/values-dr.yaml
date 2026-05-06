@@ -1,0 +1,31 @@
+replicaCount: 1
+image:
+  repository: acromnixl7yf2e.azurecr.io/omnix-mendix
+  tag: mx-v3
+  pullPolicy: IfNotPresent
+placeholder:
+  enabled: false
+  image: nginxdemos/hello:plain-text
+containerPort: 8080
+workloadIdentity:
+  clientId: d8b86fa0-069d-4750-9201-8da50c88c1da
+  tenantId: f18bd124-cda1-42b5-929a-51779df22782
+keyVault:
+  name: kv-omnix-dr-9ufg
+  secrets:
+    - MendixDatabaseConnection
+    - MendixDatabasePassword
+    - MendixStorageAccountKey
+fileShare:
+  enabled: false
+resources:
+  requests:
+    cpu: 200m
+    memory: 1Gi
+  limits:
+    cpu: 1500m
+    memory: 2Gi
+autoscaling:
+  enabled: false
+gateway:
+  enabled: false

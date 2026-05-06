@@ -1,0 +1,9 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+.env
+*.local
+node_modules/
+.DS_Store
+
+.cicd-mi-*.txt

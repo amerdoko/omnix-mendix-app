@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mendix-app
+  namespace: mendix
+  labels:
+    app: mendix-app
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: mendix-app
+  template:
+    metadata:
+      labels:
+        app: mendix-app
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: mendix-app
+      containers:
+        - name: postgres
+          image: postgres:14-alpine
+          env:
+            - name: POSTGRES_USER
+              value: mendix
+            - name: POSTGRES_PASSWORD
+              value: demo
+            - name: POSTGRES_DB
+              value: mendix
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+              name: postgres
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+        - name: app
+          image: {{ if .Values.placeholder.enabled }}{{ .Values.placeholder.image }}{{ else }}{{ .Values.image.repository }}:{{ .Values.image.tag }}{{ end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPort }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+          volumeMounts:
+            - name: kv-secrets
+              mountPath: /mnt/secrets
+              readOnly: true
+{{- if .Values.fileShare.enabled }}
+            - name: mendix-files
+              mountPath: /opt/mendix/data
+{{- end }}
+          env:
+            - name: DB_CONNECTION_FILE
+              value: /mnt/secrets/MendixDatabaseConnection
+            - name: DATABASE_ENDPOINT
+              value: "postgres://mendix:demo@127.0.0.1:5432/mendix"
+            - name: ADMIN_PASSWORD
+              value: "Demo!Password1"
+            - name: MXRUNTIME_DTAPMode
+              value: "D"
+      volumes:
+        - name: pgdata
+          emptyDir: {}
+        - name: kv-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: mendix-kv
+{{- if .Values.fileShare.enabled }}
+        - name: mendix-files
+          persistentVolumeClaim:
+            claimName: mendix-files
+{{- end }}

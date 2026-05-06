@@ -1,0 +1,7 @@
+{
+  "appVersion": "__APP_VERSION__",
+  "gitSha": "__GIT_SHA__",
+  "buildTimestamp": "__BUILD_TIMESTAMP__",
+  "hostname": null,
+  "region": null
+}

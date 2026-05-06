@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Omnix Mendix — Release __APP_VERSION__</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+           background: #0078d4; color: #fff; margin: 0; padding: 0;
+           min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { background: rgba(255,255,255,.08); padding: 48px 64px; border-radius: 16px;
+            backdrop-filter: blur(8px); box-shadow: 0 8px 32px rgba(0,0,0,.2); max-width: 640px; }
+    h1 { margin: 0 0 8px 0; font-size: 36px; }
+    .badge { display: inline-block; background: #fff; color: #0078d4; padding: 4px 12px;
+             border-radius: 12px; font-weight: 700; margin-right: 8px; }
+    table { margin-top: 24px; border-collapse: collapse; }
+    td { padding: 8px 16px 8px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+         font-size: 14px; }
+    td:first-child { color: #b3d7f0; font-weight: 600; }
+    .ok { color: #b9f6ca; }
+    a { color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <span class="badge">RELEASE</span>
+    <span class="badge">__APP_VERSION__</span>
+    <h1>Omnix Mendix</h1>
+    <p>Multi-region demo app served via Azure Front Door.<br>
+       <span class="ok">✓ Continuous delivery from GitHub Actions to AKS dev → SIT → prod.</span></p>
+    <table>
+      <tr><td>Version</td><td>__APP_VERSION__</td></tr>
+      <tr><td>Git commit</td><td>__GIT_SHA__</td></tr>
+      <tr><td>Built at</td><td>__BUILD_TIMESTAMP__</td></tr>
+      <tr><td>Pod</td><td><span id="pod">(client-side)</span></td></tr>
+      <tr><td>Region hint</td><td><span id="region">(see X-Region header)</span></td></tr>
+    </table>
+    <p style="margin-top:32px;"><a href="/">← Back to Mendix login</a></p>
+  </div>
+  <script>
+    fetch('/release.json').then(r => r.json()).then(j => {
+      document.getElementById('pod').textContent = j.hostname || 'n/a';
+      document.getElementById('region').textContent = j.region || 'n/a';
+    }).catch(() => {});
+  </script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      promote_dr:
+        description: "After prod, also redeploy DR with the same image"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write    # required for OIDC federation to Azure
+  contents: read
+
+env:
+  ACR_NAME: acromnixl7yf2e
+  IMAGE_REPO: omnix-mendix
+  AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  build:
+    name: Build wrapper image
+    runs-on: ubuntu-latest
+    environment: dev   # use dev's federated cred for the build
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      app_version: ${{ steps.meta.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        name: Compute build metadata
+        run: |
+          set -euo pipefail
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          SHA_SHORT=${GITHUB_SHA::8}
+          IMAGE_TAG="${VERSION}-${SHA_SHORT}"
+          BUILD_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "app_version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "build_ts=${BUILD_TS}" >> $GITHUB_OUTPUT
+          echo "Building $IMAGE_TAG @ $BUILD_TS"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR build (no Docker daemon needed)
+        run: |
+          set -euo pipefail
+          az acr build \
+            --registry ${ACR_NAME} \
+            --image ${IMAGE_REPO}:${{ steps.meta.outputs.image_tag }} \
+            --image ${IMAGE_REPO}:latest \
+            --file Dockerfile \
+            --build-arg APP_VERSION=${{ steps.meta.outputs.app_version }} \
+            --build-arg GIT_SHA=${GITHUB_SHA::8} \
+            --build-arg BUILD_TIMESTAMP=${{ steps.meta.outputs.build_ts }} \
+            .
+
+  deploy-dev:
+    name: Deploy → dev
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - name: Helm upgrade in dev
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          # Pack chart + values for command invoke (it ships a context tarball)
+          ./.github/scripts/helm-deploy.sh \
+            rg-omnix-dev aks-omnix-dev mendix mendix-app \
+            helm helm/values-dev.yaml \
+            "${ACR_NAME}.azurecr.io/${IMAGE_REPO}" "${IMAGE_TAG}"
+      - name: Smoke test dev
+        env:
+          EXPECTED: ${{ needs.build.outputs.app_version }}
+        run: ./.github/scripts/smoke.sh rg-omnix-dev aks-omnix-dev mendix mendix-app "$EXPECTED"
+
+  deploy-sit:
+    name: Deploy → SIT
+    needs: [build, deploy-dev]
+    runs-on: ubuntu-latest
+    environment: sit
+    steps:
+      - uses: actions/checkout@v4
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - name: Helm upgrade in SIT
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          ./.github/scripts/helm-deploy.sh \
+            rg-omnix-sit aks-omnix-sit mendix mendix-app \
+            helm helm/values-sit.yaml \
+            "${ACR_NAME}.azurecr.io/${IMAGE_REPO}" "${IMAGE_TAG}"
+      - name: Smoke test SIT
+        env:
+          EXPECTED: ${{ needs.build.outputs.app_version }}
+        run: ./.github/scripts/smoke.sh rg-omnix-sit aks-omnix-sit mendix mendix-app "$EXPECTED"
+
+  deploy-prod:
+    name: Deploy → prod
+    needs: [build, deploy-sit]
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - name: Helm upgrade in prod
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          ./.github/scripts/helm-deploy.sh \
+            rg-omnix-prod aks-omnix-prod mendix mendix-app \
+            helm helm/values-prod.yaml \
+            "${ACR_NAME}.azurecr.io/${IMAGE_REPO}" "${IMAGE_TAG}"
+      - name: Smoke test prod (Front Door)
+        env:
+          EXPECTED: ${{ needs.build.outputs.app_version }}
+          FD_URL: https://ep-omnix-amhff7fwg8azbucj.b02.azurefd.net
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            ACTUAL=$(curl -fsS "${FD_URL}/release.json" | jq -r .appVersion || echo "")
+            echo "[$i] FD release.json appVersion=${ACTUAL} (expecting ${EXPECTED})"
+            if [ "$ACTUAL" = "$EXPECTED" ]; then echo "✓ prod FD smoke OK"; exit 0; fi
+            sleep 10
+          done
+          echo "✗ prod smoke timed out"
+          exit 1
