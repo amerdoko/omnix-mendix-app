@@ -9,7 +9,7 @@ echo "Smoke test ${RELEASE} in ${AKS} → expecting appVersion=${EXPECTED}"
 LB=""
 for i in $(seq 1 24); do
   LB=$(az aks command invoke -g "${RG}" -n "${AKS}" \
-    --command "kubectl -n ${NS} get svc ${RELEASE} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'" \
+    --command "kubectl -n ${NS} get svc ${RELEASE}-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}'" \
     --query logs -o tsv 2>/dev/null | tr -d '[:space:]' || true)
   if [[ "${LB}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "LB IP = ${LB}"
