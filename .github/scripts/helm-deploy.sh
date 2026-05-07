@@ -23,4 +23,10 @@ az aks command invoke \
                --set image.tag=${TAG} \
                --set image.pullPolicy=Always \
                --wait --timeout 8m && \
-             kubectl -n ${NS} rollout status deploy/${RELEASE} --timeout=8m"
+             kubectl -n ${NS} rollout status deploy/${RELEASE} --timeout=8m" \
+  --query "{exit:exitCode,logs:logs}" -o json | tee /tmp/invoke.json
+INNER=$(jq -r '.exit // 0' /tmp/invoke.json)
+if [ "$INNER" != "0" ]; then
+  echo "✗ Helm command exited $INNER inside cluster"
+  exit "$INNER"
+fi
