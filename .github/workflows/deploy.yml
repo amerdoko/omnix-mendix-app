@@ -154,3 +154,29 @@ jobs:
           done
           echo "✗ prod smoke timed out"
           exit 1
+
+  deploy-dr:
+    name: Deploy → DR (warm standby)
+    needs: [build, deploy-prod]
+    runs-on: ubuntu-latest
+    environment: dr
+    steps:
+      - uses: actions/checkout@v4
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - name: Helm upgrade in DR
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          ./.github/scripts/helm-deploy.sh \
+            rg-omnix-dr aks-omnix-dr mendix mendix-app \
+            helm helm/values-dr.yaml \
+            "${ACR_NAME}.azurecr.io/${IMAGE_REPO}" "${IMAGE_TAG}"
+      - name: Smoke test DR (LB only — Front Door routes to prod)
+        env:
+          EXPECTED: ${{ needs.build.outputs.app_version }}
+        run: ./.github/scripts/smoke.sh rg-omnix-dr aks-omnix-dr mendix mendix-app "$EXPECTED"
